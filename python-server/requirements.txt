@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+librosa
+soundfile
+numpy
+torch
+torchvision
+scikit-learn
+python-multipart
