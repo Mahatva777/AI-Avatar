@@ -4,36 +4,43 @@ public class EmotionControllerAdapter : MonoBehaviour
 {
     public EmotionController emotionController;
 
-    private string currentEmotion = "neutral";
-    private float currentWeight = 0f;
-    private float smoothSpeed = 3f;
-    private float emotionTimer = 0f;
-    private float switchThreshold = 0.5f;
+    [Header("Stability Filter")]
+    [Tooltip("Seconds an emotion must persist before it's accepted")]
+    public float switchThreshold = 0.4f;
+    [Tooltip("Minimum confidence (0..1) to accept an emotion")]
+    public float minConfidence = 0.35f;
 
+    private string pendingEmotion  = "neutral";
+    private float  pendingTimer    = 0f;
+    private string confirmedEmotion = "neutral";
+
+    /// <summary>Called by AudioSender with data from /analyze endpoint.</summary>
     public void ReceiveEmotion(string emotion, float confidence)
     {
-     
-        if (emotion == currentEmotion)
+        Debug.Log($"[Adapter] emotion={emotion}  conf={confidence:F2}");
+
+        if (confidence < minConfidence)
         {
-            emotionTimer += Time.deltaTime;
+            emotion = "neutral";
+            confidence = 0.5f;
+        }
+
+        if (emotion == pendingEmotion)
+        {
+            pendingTimer += Time.deltaTime;
         }
         else
         {
-            emotionTimer = 0f;
+            pendingEmotion = emotion;
+            pendingTimer   = 0f;
         }
 
-        if (emotionTimer > switchThreshold)
+        if (pendingTimer >= switchThreshold || emotion == "neutral")
         {
-            currentEmotion = emotion;
+            confirmedEmotion = pendingEmotion;
         }
-
-        float intensity = confidence * 100f;
-
-        currentWeight = Mathf.Lerp(currentWeight, intensity, Time.deltaTime * smoothSpeed);
 
         if (emotionController != null)
-        {
-            emotionController.SetEmotion(currentEmotion, currentWeight);
-        }
+            emotionController.SetEmotion(confirmedEmotion, confidence);
     }
 }

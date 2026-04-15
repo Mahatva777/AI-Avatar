@@ -7,5 +7,3 @@ torch
 torchvision
 scikit-learn
 python-multipart
-faster-whisper
-ollama
