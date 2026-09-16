@@ -4,8 +4,14 @@ librosa
 soundfile
 numpy
 torch
-torchvision
+transformers
 scikit-learn
 python-multipart
+httpx
+sse-starlette
+
+# ASR — mlx-whisper preferred on Apple Silicon (Metal GPU, ~10x faster)
+mlx-whisper
+
+# Fallback for non-macOS
 faster-whisper
-ollama

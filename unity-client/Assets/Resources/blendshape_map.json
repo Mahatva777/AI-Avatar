@@ -1,0 +1,29 @@
+{
+    "happy": {
+        "blendIndex": 6
+    },
+    "angry": {
+        "blendIndex": 7
+    },
+    "sad": {
+        "blendIndex": 8
+    },
+    "viseme_A": {
+        "blendIndex": 1
+    },
+    "viseme_I": {
+        "blendIndex": 2
+    },
+    "viseme_U": {
+        "blendIndex": 3
+    },
+    "viseme_E": {
+        "blendIndex": 4
+    },
+    "viseme_O": {
+        "blendIndex": 5
+    },
+    "blink": {
+        "blendIndex": 0
+    }
+}
