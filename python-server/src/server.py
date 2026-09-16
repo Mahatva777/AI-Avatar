@@ -99,10 +99,12 @@ async def lifespan(app: FastAPI):
     emotion_classifier = pipeline(
         "text-classification",
         model=EMOTION_MODEL_NAME,
+        device="cpu",
         top_k=None,
     )
     # Warmup inference
-    _ = emotion_classifier("hello world")
+    with torch.no_grad():
+        _ = emotion_classifier("hello world")
     print("[server] Emotion classifier warmed up ✓")
 
     print("[server] ✅ All models ready — serving requests at sub-200ms latency")
@@ -145,12 +147,16 @@ async def transcribe_async(wav_np: np.ndarray) -> str:
     return transcript
 
 
+_inference_lock = asyncio.Lock()
+
+
 def get_emotion_classifier():
     global emotion_classifier
     if emotion_classifier is None:
         emotion_classifier = pipeline(
             "text-classification",
             model=EMOTION_MODEL_NAME,
+            device="cpu",
             top_k=None,
         )
     return emotion_classifier
@@ -159,8 +165,8 @@ def get_emotion_classifier():
 # ── Helpers: Emotion Classification ──────────────────────────────────────────
 def classify_text_emotion(text: str) -> tuple[str, float, dict]:
     """
-    Classifies emotion using pretrained DistilRoBERTa model.
-    Runs in ~10–20ms.
+    Classifies emotion using pretrained DistilRoBERTa model on CPU with torch.no_grad().
+    Runs deterministically in ~10–20ms without GPU stream state collisions.
     Returns: (mapped_emotion, confidence, all_scores_dict)
     """
     if not text or not text.strip():
@@ -169,15 +175,27 @@ def classify_text_emotion(text: str) -> tuple[str, float, dict]:
     clf = get_emotion_classifier()
     t0 = time.perf_counter()
     clean_text = text.strip()
-    results = clf(clean_text)[0]
+
+    with torch.no_grad():
+        results = clf(clean_text)[0]
 
     scores_dict = {item["label"]: round(float(item["score"]), 3) for item in results}
     top = max(results, key=lambda x: x["score"])
-    mapped_emotion = LABEL_MAP.get(top["label"], "neutral")
+    top_label = top["label"]
     conf = float(top["score"])
 
+    # Intelligent contextual handling for ambiguous emotions
+    if top_label == "surprise":
+        # If phrase carries anger/disgust cues (e.g. "What are you doing?!"), map to angry
+        if scores_dict.get("anger", 0) > scores_dict.get("joy", 0) or scores_dict.get("disgust", 0) > scores_dict.get("joy", 0):
+            mapped_emotion = "angry"
+        else:
+            mapped_emotion = "happy"
+    else:
+        mapped_emotion = LABEL_MAP.get(top_label, "neutral")
+
     dt = (time.perf_counter() - t0) * 1000
-    print(f"[EmotionClassifier] {dt:.0f}ms → {top['label']} => {mapped_emotion} ({conf:.2f})")
+    print(f"[EmotionClassifier] {dt:.0f}ms → {top_label} => {mapped_emotion} ({conf:.2f})")
     return mapped_emotion, conf, scores_dict
 
 
@@ -271,11 +289,13 @@ async def analyze(file: UploadFile = File(...)):
         else wav.astype(np.float32)
     )
 
-    # 1. Transcribe speech using mlx-whisper (Apple Metal GPU, ~100ms)
-    transcript = await transcribe_async(wav_16)
+    # Serialize Whisper and emotion classification to eliminate race conditions
+    async with _inference_lock:
+        # 1. Transcribe speech using mlx-whisper (Apple Metal GPU, ~100ms)
+        transcript = await transcribe_async(wav_16)
 
-    # 2. Classify emotion from transcript (~15ms)
-    emotion, conf, scores = classify_text_emotion(transcript)
+        # 2. Classify emotion from transcript (~15ms)
+        emotion, conf, scores = classify_text_emotion(transcript)
 
     t_total = (time.perf_counter() - t_start) * 1000
     print(f"[/analyze] Response in {t_total:.0f}ms | \"{transcript}\" -> {emotion} ({conf:.2f})")
